@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ page_title }} | Signal Check</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}">
+</head>
+<body>
+    <main class="page-shell">
+        <header class="topbar">
+            <a class="brand" href="/" aria-label="Signal Check home"><span class="brand-mark">S</span> SIGNAL CHECK</a>
+            <nav class="topbar-actions" aria-label="Main navigation">
+                {% if real_only %}
+                <a class="text-link" href="{{ url_for('today_news') }}">All headlines <span aria-hidden="true">→</span></a>
+                {% else %}
+                <a class="text-link" href="{{ url_for('real_news') }}">Real-news picks <span aria-hidden="true">→</span></a>
+                {% endif %}
+                <a class="text-link" href="/">Analyze a story <span aria-hidden="true">→</span></a>
+                <button class="theme-toggle" type="button" data-theme-toggle aria-label="Switch to dark theme" aria-pressed="false"><span data-theme-icon aria-hidden="true">☾</span><span data-theme-label>Dark mode</span></button>
+            </nav>
+        </header>
+        <section class="intro headlines-intro">
+            <p class="eyebrow">{% if real_only %}GLOBAL MODEL PICKS{% else %}GLOBAL NEWS SCAN{% endif %}</p>
+            {% if real_only %}
+            <h1>Model picks.<br><span>Read critically.</span></h1>
+            {% else %}
+            <h1>Global<br><span>headlines.</span></h1>
+            {% endif %}
+            <p class="intro-copy">{{ page_description }}</p>
+            <p class="source-hint">Showing up to 20 recent results from NewsAPI's international English-language news index.</p>
+            <p class="source-hint"><span aria-hidden="true">↗</span> Article sources open in a new tab, so Signal Check stays open here.</p>
+        </section>
+        <section class="headlines-section" aria-label="Today's headline assessments">
+            {% if error %}
+            <p class="empty-state" role="status">{{ error }}</p>
+            {% endif %}
+            <div class="list-heading">
+                <h2>{% if real_only %}Model-classified as real{% else %}Recent stories worldwide{% endif %}</h2>
+                <a class="refresh-link" href="{% if real_only %}{{ url_for('real_news', refresh=1) }}{% else %}{{ url_for('today_news', refresh=1) }}{% endif %}">Refresh headlines <span aria-hidden="true">↻</span></a>
+            </div>
+            {% if results %}
+            <div class="headline-tools">
+                <label class="search-box" for="headline-search">
+                    <span aria-hidden="true">⌕</span>
+                    <input id="headline-search" type="search" placeholder="Search headlines..." autocomplete="off">
+                </label>
+                <div class="filters" role="group" aria-label="Filter headlines">
+                    <button type="button" class="filter-button is-active" data-filter="all" aria-pressed="true">All <span data-count="all"></span></button>
+                    {% if not real_only %}
+                    <button type="button" class="filter-button" data-filter="real" aria-pressed="false">Real <span data-count="real"></span></button>
+                    <button type="button" class="filter-button" data-filter="fake" aria-pressed="false">Fake <span data-count="fake"></span></button>
+                    {% endif %}
+                    <button type="button" class="filter-button" data-filter="saved" aria-pressed="false">Saved <span data-count="saved"></span></button>
+                </div>
+            </div>
+            <p class="results-count" id="results-count" aria-live="polite"></p>
+            {% endif %}
+            <ul class="headline-list" id="headline-list" aria-live="polite">
+                {% for item in results %}
+                    <li class="headline-item" data-label="{% if 'Real' in item.label %}real{% else %}fake{% endif %}" data-bookmark-key="{{ item.headline }}">
+                        <span class="headline-number">{{ '%02d'|format(loop.index) }}</span>
+                        <div class="headline-content">
+                            <strong>{{ item.headline }}</strong>
+                            <span class="headline-label {% if 'Real' in item.label %}label-real{% else %}label-fake{% endif %}">{{ item.label }}</span>
+                            <span class="headline-source">{{ item.source }}</span>
+                        </div>
+                        <div class="headline-actions">
+                            <button class="save-headline" type="button" aria-pressed="false" aria-label="Save headline">☆ <span>Save</span></button>
+                            {% if item.url %}
+                            <a class="headline-arrow" href="{{ item.url }}" target="_blank" rel="noopener noreferrer" aria-label="Read source for {{ item.headline }} (opens in a new tab)">Read source <span aria-hidden="true">↗</span></a>
+                            {% else %}
+                            <span class="headline-arrow" aria-hidden="true">News</span>
+                            {% endif %}
+                        </div>
+                    </li>
+                {% else %}
+                    {% if not error %}
+                    <li class="empty-state">No headlines are available right now. Try refreshing in a little while.</li>
+                    {% endif %}
+                {% endfor %}
+            </ul>
+            {% if results %}<p class="empty-filter" id="empty-filter" hidden>No headlines match your search and filter.</p>{% endif %}
+        </section>
+        <footer class="page-footer">
+            <span>Signal Check</span>
+            <span class="model-disclaimer">Signal Check analyzes text and predicts whether it may be real or fake based on patterns learned by the model. This is an estimate, not a fact-check.</span>
+        </footer>
+    </main>
+    <button class="back-to-top" type="button" aria-label="Back to top" title="Back to top">↑</button>
+    <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+    <script>
+        const filterButtons = document.querySelectorAll('.filter-button');
+        const headlineItems = document.querySelectorAll('.headline-item');
+        const emptyFilter = document.querySelector('#empty-filter');
+        const searchInput = document.querySelector('#headline-search');
+        const resultsCount = document.querySelector('#results-count');
+        let activeFilter = 'all';
+        const savedHeadlineKeys = new Set(JSON.parse(localStorage.getItem('signal-check-saved-headlines') || '[]'));
+
+        headlineItems.forEach((item) => {
+            const saveButton = item.querySelector('.save-headline');
+            const isSaved = savedHeadlineKeys.has(item.dataset.bookmarkKey);
+            saveButton.setAttribute('aria-pressed', String(isSaved));
+            saveButton.classList.toggle('is-saved', isSaved);
+            saveButton.innerHTML = isSaved ? '★ <span>Saved</span>' : '☆ <span>Save</span>';
+        });
+
+        function updateHeadlines() {
+            const query = searchInput.value.trim().toLocaleLowerCase();
+            let visibleCount = 0;
+            const counts = { all: 0, real: 0, fake: 0, saved: 0 };
+
+            headlineItems.forEach((item) => {
+                const label = item.dataset.label;
+                counts.all += 1;
+                counts[label] += 1;
+                const isSaved = savedHeadlineKeys.has(item.dataset.bookmarkKey);
+                counts.saved += Number(isSaved);
+                const matchesFilter = activeFilter === 'all'
+                    || label === activeFilter
+                    || (activeFilter === 'saved' && isSaved);
+                const matchesSearch = item.textContent.toLocaleLowerCase().includes(query);
+                const isVisible = matchesFilter && matchesSearch
+                    && (activeFilter !== 'saved' || isSaved);
+                item.hidden = !isVisible;
+                visibleCount += Number(isVisible);
+            });
+
+            Object.entries(counts).forEach(([label, count]) => {
+                const countElement = document.querySelector(`[data-count="${label}"]`);
+                if (countElement) countElement.textContent = `(${count})`;
+            });
+            emptyFilter.hidden = visibleCount > 0;
+            resultsCount.textContent = `Showing ${visibleCount} of ${headlineItems.length} headlines`;
+        }
+
+        filterButtons.forEach((button) => {
+            button.addEventListener('click', () => {
+                activeFilter = button.dataset.filter;
+
+                filterButtons.forEach((item) => {
+                    const isActive = item === button;
+                    item.classList.toggle('is-active', isActive);
+                    item.setAttribute('aria-pressed', String(isActive));
+                });
+                updateHeadlines();
+            });
+        });
+
+        headlineItems.forEach((item) => {
+            item.querySelector('.save-headline').addEventListener('click', (event) => {
+                const button = event.currentTarget;
+                const key = item.dataset.bookmarkKey;
+                if (savedHeadlineKeys.has(key)) {
+                    savedHeadlineKeys.delete(key);
+                } else {
+                    savedHeadlineKeys.add(key);
+                }
+                localStorage.setItem('signal-check-saved-headlines', JSON.stringify([...savedHeadlineKeys]));
+                const isSaved = savedHeadlineKeys.has(key);
+                button.setAttribute('aria-pressed', String(isSaved));
+                button.classList.toggle('is-saved', isSaved);
+                button.innerHTML = isSaved ? '★ <span>Saved</span>' : '☆ <span>Save</span>';
+                updateHeadlines();
+            });
+        });
+
+        searchInput?.addEventListener('input', updateHeadlines);
+        if (headlineItems.length) updateHeadlines();
+    </script>
+</body>
+</html>
